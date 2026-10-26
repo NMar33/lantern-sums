@@ -5,7 +5,8 @@ const STAR_COUNT = 160;
 
 const SPAWN_INTERVAL = 1.2; // seconds
 const RISE_SPEED = 40; // px per second
-const LANTERN_RADIUS = 24;
+const LANTERN_SIZE = 1.5; // drawing scale of the paper lantern
+const LANTERN_RADIUS = 30 * LANTERN_SIZE; // the whole lantern fits in this circle
 const LANTERN_GAP = 8; // minimum space between two lanterns
 const SPAWN_TRIES = 20;
 const FLOAT_TIME = 0.8; // seconds a matched lantern takes to float away
@@ -19,10 +20,10 @@ const DEMO_RETRY = 0.3; // seconds before looking again when no group adds up
 const DEMO_MAX_GROUP = 4;
 const DEMO_CANDIDATES = 16;
 const DEMO_WARMUP = 8; // seconds simulated so the sky is not empty at first
-const DEMO_TOP = 90; // px; picks stay below the top bar
 
 const canvas = document.getElementById('sky');
 const ctx = canvas.getContext('2d');
+const hudEl = document.querySelector('.hud');
 const scoreEl = document.getElementById('score');
 const targetEl = document.getElementById('target');
 const livesEl = document.getElementById('lives');
@@ -188,9 +189,11 @@ function onPointerDown(event) {
 // the highest fully visible ones. The group whose top lantern is highest
 // wins, so the demo saves the lanterns closest to escaping.
 function findDemoGroup() {
+  // Picks stay below the top bar and fully on screen.
+  const top = hudEl.getBoundingClientRect().bottom + LANTERN_RADIUS;
   const bottom = window.innerHeight - LANTERN_RADIUS;
   const candidates = activeLanterns()
-    .filter((l) => l.y >= DEMO_TOP && l.y <= bottom)
+    .filter((l) => l.y >= top && l.y <= bottom)
     .sort((a, b) => a.y - b.y)
     .slice(0, DEMO_CANDIDATES);
 
@@ -292,8 +295,100 @@ function drawSky() {
   ctx.globalAlpha = 1;
 }
 
+// Paper lantern, drawn around (0, 0) in units where it fits a circle of 30;
+// drawLantern scales it by LANTERN_SIZE to LANTERN_RADIUS, the circle used
+// for spacing and clicks.
+const BODY_RADIUS = 21;
+const CAP_HALF_WIDTH = 9;
+const RIBS = [-0.66, -0.33, 0.33, 0.66];
+
+function lanternPath(rx, ry) {
+  ctx.beginPath();
+  ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
+}
+
+function drawPaperLantern(value, selected) {
+  // Hook and top cap
+  ctx.strokeStyle = '#3a1a0a';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(0, -29);
+  ctx.lineTo(0, -26);
+  ctx.stroke();
+  ctx.fillStyle = '#5a2a12';
+  ctx.beginPath();
+  ctx.roundRect(-CAP_HALF_WIDTH, -26, 2 * CAP_HALF_WIDTH, 6, 2);
+  ctx.fill();
+
+  // Tassel
+  ctx.strokeStyle = '#c23a22';
+  ctx.lineWidth = 1.5;
+  for (const dx of [-2.5, 0, 2.5]) {
+    ctx.beginPath();
+    ctx.moveTo(dx * 0.4, 25);
+    ctx.lineTo(dx, 29);
+    ctx.stroke();
+  }
+
+  // Paper body, lit from inside
+  if (selected) {
+    ctx.shadowColor = 'rgba(255, 225, 130, 0.95)';
+    ctx.shadowBlur = 22;
+  }
+  const paper = ctx.createRadialGradient(0, -2, 3, 0, 0, BODY_RADIUS + 1);
+  paper.addColorStop(0, '#fff1b8');
+  paper.addColorStop(0.45, '#ffb347');
+  paper.addColorStop(1, '#d9481c');
+  ctx.fillStyle = paper;
+  lanternPath(BODY_RADIUS, BODY_RADIUS);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  // Ribs of the paper
+  ctx.save();
+  lanternPath(BODY_RADIUS, BODY_RADIUS);
+  ctx.clip();
+  ctx.strokeStyle = 'rgba(120, 30, 10, 0.35)';
+  ctx.lineWidth = 1.2;
+  for (const f of RIBS) {
+    lanternPath(BODY_RADIUS * Math.abs(f), BODY_RADIUS);
+    ctx.stroke();
+  }
+  for (const y of [-14, 14]) {
+    ctx.beginPath();
+    ctx.moveTo(-BODY_RADIUS, y);
+    ctx.lineTo(BODY_RADIUS, y);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // Bottom cap
+  ctx.fillStyle = '#5a2a12';
+  ctx.beginPath();
+  ctx.roundRect(-CAP_HALF_WIDTH * 0.8, 20, 1.6 * CAP_HALF_WIDTH, 5, 2);
+  ctx.fill();
+
+  if (selected) {
+    ctx.strokeStyle = '#ffe9a8';
+    ctx.lineWidth = 3;
+    lanternPath(BODY_RADIUS + 2, BODY_RADIUS + 2);
+    ctx.stroke();
+  }
+
+  // A light halo keeps the number readable over the ribs.
+  ctx.font = '800 27px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = 'rgba(255, 241, 184, 0.9)';
+  ctx.lineWidth = 5;
+  ctx.strokeText(String(value), 0, 1);
+  ctx.fillStyle = '#4a1a00';
+  ctx.fillText(String(value), 0, 1);
+}
+
 function drawLantern(l) {
-  let r = LANTERN_RADIUS;
+  let scale = 1;
   let y = l.y;
   let x = l.x;
   let alpha = 1;
@@ -302,8 +397,8 @@ function drawLantern(l) {
     // Shrink and rise by the amount it shrinks: the top edge stays on its
     // usual track, so a floating lantern cannot run into the one above.
     const t = Math.min(1, l.floatT / FLOAT_TIME);
-    r = LANTERN_RADIUS * (1 - 0.7 * t);
-    y -= LANTERN_RADIUS - r;
+    scale = 1 - 0.7 * t;
+    y -= LANTERN_RADIUS * (1 - scale);
     alpha = 1 - t;
   }
   if (l.shakeT > 0) {
@@ -312,32 +407,9 @@ function drawLantern(l) {
 
   ctx.save();
   ctx.globalAlpha = alpha;
-
-  if (l.selected) {
-    ctx.shadowColor = 'rgba(255, 220, 120, 0.9)';
-    ctx.shadowBlur = 18;
-    ctx.strokeStyle = '#ffe9a8';
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.arc(x, y, r + 2, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-  }
-
-  const body = ctx.createRadialGradient(x, y - r * 0.2, r * 0.1, x, y, r);
-  body.addColorStop(0, '#ffe08a');
-  body.addColorStop(1, '#f08a24');
-  ctx.fillStyle = body;
-  ctx.beginPath();
-  ctx.arc(x, y, r, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.fillStyle = '#3a1d00';
-  ctx.font = `700 ${Math.round(r * 0.95)}px system-ui, sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(String(l.value), x, y + 1);
-
+  ctx.translate(x, y);
+  ctx.scale(scale * LANTERN_SIZE, scale * LANTERN_SIZE);
+  drawPaperLantern(l.value, l.selected);
   ctx.restore();
 }
 
