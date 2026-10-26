@@ -71,6 +71,11 @@ body {
   background: rgba(5, 12, 30, 0.55);
 }
 
+/* Lighter, so the attract mode behind it shows through. */
+#start-overlay {
+  background: rgba(5, 12, 30, 0.25);
+}
+
 .overlay[hidden] {
   display: none;
 }

@@ -13,6 +13,13 @@ const SHAKE_TIME = 0.4;
 const SHAKE_AMPLITUDE = 3; // px, at most half of LANTERN_GAP
 const MAX_STEP = 0.1; // seconds; longer frames (a hidden tab) are clamped
 const BEST_KEY = 'lantern-sums-best';
+const DEMO_PICK_DELAY = 0.5; // seconds between two picks in attract mode
+const DEMO_REST = 0.8; // seconds after a match before the next group
+const DEMO_RETRY = 0.3; // seconds before looking again when no group adds up
+const DEMO_MAX_GROUP = 4;
+const DEMO_CANDIDATES = 16;
+const DEMO_WARMUP = 8; // seconds simulated so the sky is not empty at first
+const DEMO_TOP = 90; // px; picks stay below the top bar
 
 const canvas = document.getElementById('sky');
 const ctx = canvas.getContext('2d');
@@ -33,6 +40,9 @@ let score = 0;
 let lives = LIVES;
 let spawnTimer = 0;
 let running = false;
+let demo = false; // attract mode behind the start overlay
+let demoPlan = []; // ids of the lanterns the demo will pick next
+let demoTimer = 0;
 let paused = false;
 let lastTime = 0;
 let frameId = 0;
@@ -143,8 +153,10 @@ function resolveSelection() {
   const selected = selectedLanterns();
   const result = checkSelection(selected.map((l) => l.value));
   if (result === 'match') {
-    score += scoreFor(selected.length);
-    renderScore();
+    if (running) {
+      score += scoreFor(selected.length);
+      renderScore();
+    }
     for (const l of selected) {
       l.selected = false;
       l.floating = true;
@@ -172,6 +184,58 @@ function onPointerDown(event) {
   if (lantern.selected) resolveSelection();
 }
 
+// Groups of 2 to DEMO_MAX_GROUP lanterns that add up to the target, among
+// the highest fully visible ones. The group whose top lantern is highest
+// wins, so the demo saves the lanterns closest to escaping.
+function findDemoGroup() {
+  const bottom = window.innerHeight - LANTERN_RADIUS;
+  const candidates = activeLanterns()
+    .filter((l) => l.y >= DEMO_TOP && l.y <= bottom)
+    .sort((a, b) => a.y - b.y)
+    .slice(0, DEMO_CANDIDATES);
+
+  let best = null;
+  const group = [];
+  function search(start, total) {
+    if (total === TARGET && group.length >= 2) {
+      if (!best || group[0].y < best[0].y) best = [...group];
+      return;
+    }
+    if (total >= TARGET || group.length === DEMO_MAX_GROUP) return;
+    for (let i = start; i < candidates.length; i++) {
+      group.push(candidates[i]);
+      search(i + 1, total + candidates[i].value);
+      group.pop();
+    }
+  }
+  search(0, 0);
+  return best ? best.map((l) => l.id) : [];
+}
+
+function runDemo(dt) {
+  demoTimer -= dt;
+  if (demoTimer > 0) return;
+
+  if (demoPlan.length === 0) {
+    demoPlan = findDemoGroup();
+    demoTimer = demoPlan.length ? DEMO_PICK_DELAY : DEMO_RETRY;
+    return;
+  }
+
+  const lantern = activeLanterns().find((l) => l.id === demoPlan[0]);
+  if (!lantern) {
+    // A planned lantern escaped: drop the half-made selection and replan.
+    for (const l of selectedLanterns()) l.selected = false;
+    demoPlan = [];
+    demoTimer = DEMO_RETRY;
+    return;
+  }
+  demoPlan.shift();
+  lantern.selected = true;
+  resolveSelection();
+  demoTimer = demoPlan.length ? DEMO_PICK_DELAY : DEMO_REST;
+}
+
 function update(dt) {
   spawnTimer += dt;
   while (spawnTimer >= SPAWN_INTERVAL) {
@@ -185,9 +249,11 @@ function update(dt) {
     if (l.shakeT > 0) l.shakeT = Math.max(0, l.shakeT - dt);
   }
 
+  if (demo) runDemo(dt);
+
   // A lantern whose top edge reaches the top of the sky costs a life and is
   // dropped (from the selection too). Matched lanterns floating away cost
-  // nothing; they are dropped once faded.
+  // nothing; they are dropped once faded. In attract mode no life is lost.
   let escaped = 0;
   lanterns = lanterns.filter((l) => {
     if (l.floating) return l.floatT < FLOAT_TIME;
@@ -198,7 +264,7 @@ function update(dt) {
     return true;
   });
 
-  if (escaped > 0) {
+  if (escaped > 0 && running) {
     lives = Math.max(0, lives - escaped);
     renderLives();
     if (lives === 0) gameOver();
@@ -281,12 +347,12 @@ function draw() {
 }
 
 function frame(time) {
-  if (!running || paused) return;
+  if ((!running && !demo) || paused) return;
   const dt = Math.min(MAX_STEP, (time - lastTime) / 1000);
   lastTime = time;
   update(dt);
   draw();
-  if (running && !paused) frameId = requestAnimationFrame(frame);
+  if ((running || demo) && !paused) frameId = requestAnimationFrame(frame);
 }
 
 // Cancelling first keeps one loop even if pause is toggled twice in a frame.
@@ -296,7 +362,19 @@ function startLoop() {
   frameId = requestAnimationFrame(frame);
 }
 
+function startDemo() {
+  demo = true;
+  demoPlan = [];
+  demoTimer = DEMO_REST;
+  lanterns = [];
+  spawnTimer = SPAWN_INTERVAL;
+  for (let t = 0; t < DEMO_WARMUP; t += MAX_STEP) update(MAX_STEP);
+  startLoop();
+}
+
 function startGame() {
+  demo = false;
+  demoPlan = [];
   overlay.hidden = true;
   gameOverOverlay.hidden = true;
   pauseOverlay.hidden = true;
@@ -346,3 +424,4 @@ buildLives();
 renderLives();
 renderScore();
 resize();
+startDemo();
