@@ -12,6 +12,7 @@ const FLOAT_TIME = 0.8; // seconds a matched lantern takes to float away
 const SHAKE_TIME = 0.4;
 const SHAKE_AMPLITUDE = 3; // px, at most half of LANTERN_GAP
 const MAX_STEP = 0.1; // seconds; longer frames (a hidden tab) are clamped
+const BEST_KEY = 'lantern-sums-best';
 
 const canvas = document.getElementById('sky');
 const ctx = canvas.getContext('2d');
@@ -20,13 +21,21 @@ const targetEl = document.getElementById('target');
 const livesEl = document.getElementById('lives');
 const overlay = document.getElementById('start-overlay');
 const startButton = document.getElementById('start-button');
+const pauseOverlay = document.getElementById('pause-overlay');
+const gameOverOverlay = document.getElementById('gameover-overlay');
+const finalScoreEl = document.getElementById('final-score');
+const bestScoreEl = document.getElementById('best-score');
+const againButton = document.getElementById('again-button');
 
 let stars = [];
 let lanterns = [];
 let score = 0;
+let lives = LIVES;
 let spawnTimer = 0;
 let running = false;
+let paused = false;
 let lastTime = 0;
+let frameId = 0;
 let nextId = 1;
 
 function lanternIcon() {
@@ -38,9 +47,33 @@ function lanternIcon() {
   </svg>`;
 }
 
-function renderLives(count) {
-  livesEl.innerHTML = lanternIcon().repeat(count);
-  livesEl.setAttribute('aria-label', `${count} lives left`);
+function buildLives() {
+  livesEl.innerHTML = lanternIcon().repeat(LIVES);
+}
+
+// Lost lives stay in the bar, faded.
+function renderLives() {
+  livesEl.querySelectorAll('svg').forEach((icon, i) => {
+    icon.classList.toggle('lost', i >= lives);
+  });
+  livesEl.setAttribute('aria-label', `${lives} lives left`);
+}
+
+// localStorage can be missing or throw (private windows, blocked storage).
+function readBest() {
+  try {
+    return Number(localStorage.getItem(BEST_KEY)) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+function writeBest(value) {
+  try {
+    localStorage.setItem(BEST_KEY, String(value));
+  } catch {
+    // The best score is then kept for this page only.
+  }
 }
 
 function renderScore() {
@@ -131,7 +164,7 @@ function lanternAt(x, y) {
 }
 
 function onPointerDown(event) {
-  if (!running) return;
+  if (!running || paused) return;
   const rect = canvas.getBoundingClientRect();
   const lantern = lanternAt(event.clientX - rect.left, event.clientY - rect.top);
   if (!lantern) return;
@@ -152,11 +185,24 @@ function update(dt) {
     if (l.shakeT > 0) l.shakeT = Math.max(0, l.shakeT - dt);
   }
 
-  // Lanterns that left the sky or finished floating away are dropped;
-  // a selected one that leaves the top is dropped from the selection too.
-  lanterns = lanterns.filter(
-    (l) => l.y + LANTERN_RADIUS > 0 && l.floatT < FLOAT_TIME,
-  );
+  // A lantern whose top edge reaches the top of the sky costs a life and is
+  // dropped (from the selection too). Matched lanterns floating away cost
+  // nothing; they are dropped once faded.
+  let escaped = 0;
+  lanterns = lanterns.filter((l) => {
+    if (l.floating) return l.floatT < FLOAT_TIME;
+    if (l.y - LANTERN_RADIUS <= 0) {
+      escaped++;
+      return false;
+    }
+    return true;
+  });
+
+  if (escaped > 0) {
+    lives = Math.max(0, lives - escaped);
+    renderLives();
+    if (lives === 0) gameOver();
+  }
 }
 
 function drawSky() {
@@ -235,29 +281,68 @@ function draw() {
 }
 
 function frame(time) {
+  if (!running || paused) return;
   const dt = Math.min(MAX_STEP, (time - lastTime) / 1000);
   lastTime = time;
   update(dt);
   draw();
-  if (running) requestAnimationFrame(frame);
+  if (running && !paused) frameId = requestAnimationFrame(frame);
+}
+
+// Cancelling first keeps one loop even if pause is toggled twice in a frame.
+function startLoop() {
+  cancelAnimationFrame(frameId);
+  lastTime = performance.now();
+  frameId = requestAnimationFrame(frame);
 }
 
 function startGame() {
   overlay.hidden = true;
+  gameOverOverlay.hidden = true;
+  pauseOverlay.hidden = true;
+  // Space must not press a focused button while the game runs.
+  document.activeElement?.blur();
   lanterns = [];
   score = 0;
+  lives = LIVES;
   spawnTimer = SPAWN_INTERVAL; // first lantern right away
   renderScore();
+  renderLives();
   running = true;
-  lastTime = performance.now();
-  requestAnimationFrame(frame);
+  paused = false;
+  startLoop();
+}
+
+function gameOver() {
+  running = false;
+  const best = Math.max(score, readBest());
+  writeBest(best);
+  finalScoreEl.textContent = score;
+  bestScoreEl.textContent = best;
+  gameOverOverlay.hidden = false;
+  againButton.focus();
+}
+
+function togglePause() {
+  paused = !paused;
+  pauseOverlay.hidden = !paused;
+  if (!paused) startLoop();
+}
+
+function onKeyDown(event) {
+  if (event.code !== 'Space' || !running) return;
+  event.preventDefault();
+  if (!event.repeat) togglePause();
 }
 
 startButton.addEventListener('click', startGame);
+againButton.addEventListener('click', startGame);
 canvas.addEventListener('pointerdown', onPointerDown);
+window.addEventListener('keydown', onKeyDown);
 window.addEventListener('resize', resize);
 
 targetEl.textContent = TARGET;
-renderLives(LIVES);
+buildLives();
+renderLives();
 renderScore();
 resize();

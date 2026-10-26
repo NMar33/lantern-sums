@@ -54,6 +54,12 @@ body {
 .hud-lives svg {
   width: 22px;
   height: 32px;
+  transition: opacity 0.6s ease, filter 0.6s ease;
+}
+
+.hud-lives svg.lost {
+  opacity: 0.2;
+  filter: grayscale(1);
 }
 
 .overlay {
@@ -82,6 +88,29 @@ body {
   font-size: 3rem;
   color: #ffd27a;
   text-shadow: 0 0 18px rgba(255, 180, 70, 0.6);
+}
+
+.panel h2 {
+  margin: 0 0 16px;
+  font-size: 2.25rem;
+  color: #ffd27a;
+}
+
+.panel p {
+  margin: 0 0 8px;
+}
+
+.panel .hint {
+  margin: 0;
+  opacity: 0.7;
+}
+
+.panel .result {
+  font-size: 1.25rem;
+}
+
+.panel .result + button {
+  margin-top: 16px;
 }
 
 .panel button {
