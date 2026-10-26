@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lantern Sums</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <canvas id="sky"></canvas>
+
+  <header class="hud">
+    <div class="hud-score">Score <span id="score">0</span></div>
+    <div class="hud-target">Target <span id="target">10</span></div>
+    <div class="hud-lives" id="lives" aria-label="3 lives left"></div>
+  </header>
+
+  <div class="overlay" id="start-overlay">
+    <div class="panel">
+      <h1>Lantern Sums</h1>
+      <button type="button" id="start-button">Start</button>
+    </div>
+  </div>
+
+  <script type="module" src="game.js"></script>
+</body>
+</html>
