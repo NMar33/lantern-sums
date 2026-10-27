@@ -3,15 +3,18 @@ export const UNLOCK_POINTS = 100; // unlocks the next level, after game over
 export const ADVANCE_POINTS = 200; // moves on to the next level at once
 
 // Each step makes one thing harder: faster lanterns, more of them, then a
-// bigger target. Past the last row the lanterns keep getting faster.
+// bigger target. A bigger target allows more groups of 3 and 4, which score
+// more, so those levels also rise much faster; the speeds come from the
+// playtest bot (tools/playtest.js), so each level is passed less often than
+// the one before. Past the last row the lanterns keep getting faster.
 const LEVELS = [
   { speed: 40, interval: 1.2, target: 10 },
   { speed: 50, interval: 1.2, target: 10 },
   { speed: 50, interval: 1.0, target: 10 },
-  { speed: 50, interval: 1.0, target: 12 },
-  { speed: 50, interval: 1.0, target: 15 },
+  { speed: 90, interval: 1.0, target: 12 },
+  { speed: 100, interval: 1.0, target: 15 },
 ];
-const SPEED_STEP = 5; // px per second added per level past the table
+const SPEED_STEP = 10; // px per second added per level past the table
 
 export function levelSettings(level) {
   const n = Math.max(1, Math.floor(level));

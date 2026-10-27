@@ -92,6 +92,12 @@ test('levels get faster, then more lanterns, then a bigger target', () => {
   assert.equal(l5.target, 15);
 });
 
+test('from level 3 on, each level rises faster than the one before', () => {
+  for (let n = 4; n <= 9; n++) {
+    assert.ok(levelSettings(n).speed > levelSettings(n - 1).speed, `level ${n}`);
+  }
+});
+
 test('levels past the table keep getting faster with target 15', () => {
   assert.ok(levelSettings(6).speed > levelSettings(5).speed);
   assert.ok(levelSettings(7).speed > levelSettings(6).speed);
