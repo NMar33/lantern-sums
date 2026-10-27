@@ -9,6 +9,11 @@ import {
   checkSelection,
   scoreFor,
   unlockedAfter,
+  isHalloweenSeason,
+  themeFromLink,
+  halloweenOn,
+  selectionOutcome,
+  escapeCost,
 } from '../logic.js';
 
 test('the target is 10', () => {
@@ -107,4 +112,121 @@ test('unlockedAfter opens the next level from 100 points', () => {
 test('unlockedAfter never closes a level already open', () => {
   assert.equal(unlockedAfter(1, 0, 4), 4);
   assert.equal(unlockedAfter(1, 120, 4), 4);
+});
+
+// Months are 0-based in Date: 9 is October, 10 is November.
+const oct = (day) => new Date(2026, 9, day);
+
+test('Halloween season runs from Oct 25 to Nov 1', () => {
+  assert.equal(isHalloweenSeason(oct(24)), false);
+  assert.equal(isHalloweenSeason(oct(25)), true);
+  assert.equal(isHalloweenSeason(oct(31)), true);
+  assert.equal(isHalloweenSeason(new Date(2026, 10, 1)), true);
+  assert.equal(isHalloweenSeason(new Date(2026, 10, 2)), false);
+});
+
+test('Halloween season comes back every year', () => {
+  assert.equal(isHalloweenSeason(new Date(2031, 9, 28)), true);
+});
+
+test('themeFromLink reads ?theme= and ignores other values', () => {
+  assert.equal(themeFromLink('?theme=halloween'), 'halloween');
+  assert.equal(themeFromLink('?theme=classic'), 'classic');
+  assert.equal(themeFromLink('?theme=space'), null);
+  assert.equal(themeFromLink(''), null);
+});
+
+test('halloweenOn follows the date when nothing else is set', () => {
+  assert.equal(halloweenOn({ date: oct(31) }), true);
+  assert.equal(halloweenOn({ date: new Date(2026, 5, 15) }), false);
+});
+
+test('?theme=halloween turns it on in June', () => {
+  const june = new Date(2026, 5, 15);
+  assert.equal(halloweenOn({ date: june, search: '?theme=halloween' }), true);
+});
+
+test('?theme=classic turns it off on Oct 31', () => {
+  assert.equal(halloweenOn({ date: oct(31), search: '?theme=classic' }), false);
+});
+
+test('a remembered toggle "off" turns it off on Oct 31', () => {
+  assert.equal(halloweenOn({ date: oct(31), remembered: false }), false);
+});
+
+test('a remembered toggle "on" turns it on in June', () => {
+  const june = new Date(2026, 5, 15);
+  assert.equal(halloweenOn({ date: june, remembered: true }), true);
+});
+
+test('the link wins over the remembered toggle', () => {
+  assert.equal(
+    halloweenOn({ date: oct(31), search: '?theme=halloween', remembered: false }),
+    true,
+  );
+  assert.equal(
+    halloweenOn({ date: oct(31), search: '?theme=classic', remembered: true }),
+    false,
+  );
+});
+
+const lantern = (value) => ({ value, ghost: false });
+const ghost = (value) => ({ value, ghost: true });
+
+test('a ghost in a sum of 10 costs a life and scores 0', () => {
+  assert.deepEqual(selectionOutcome([lantern(4), ghost(6)]), {
+    result: 'match',
+    points: 0,
+    livesLost: 1,
+  });
+});
+
+test('a ghost in a sum over 10 costs a life', () => {
+  assert.deepEqual(selectionOutcome([ghost(7), lantern(5)]), {
+    result: 'over',
+    points: 0,
+    livesLost: 1,
+  });
+});
+
+test('a ghost in a sum under 10 costs nothing yet', () => {
+  assert.deepEqual(selectionOutcome([ghost(3), lantern(2)]), {
+    result: 'under',
+    points: 0,
+    livesLost: 0,
+  });
+});
+
+test('a sum of 10 without a ghost scores as before', () => {
+  assert.equal(selectionOutcome([lantern(3), lantern(7)]).points, 10);
+  assert.equal(selectionOutcome([lantern(2), lantern(3), lantern(5)]).points, 30);
+  assert.equal(
+    selectionOutcome([lantern(1), lantern(2), lantern(3), lantern(4)]).points,
+    60,
+  );
+  assert.equal(selectionOutcome([lantern(3), lantern(7)]).livesLost, 0);
+});
+
+test('a sum over 10 without a ghost costs no life and scores nothing', () => {
+  assert.deepEqual(selectionOutcome([lantern(6), lantern(5)]), {
+    result: 'over',
+    points: 0,
+    livesLost: 0,
+  });
+});
+
+test('a ghost flying away costs no life; a normal lantern costs one', () => {
+  assert.equal(escapeCost(ghost(5)), 0);
+  assert.equal(escapeCost(lantern(5)), 1);
+});
+
+test('selectionOutcome uses the level target it is given', () => {
+  assert.equal(selectionOutcome([lantern(5), lantern(7)], 12).result, 'match');
+  assert.equal(selectionOutcome([lantern(5), lantern(7)], 12).points, 10);
+  assert.equal(selectionOutcome([lantern(3), lantern(7)], 12).result, 'under');
+  assert.deepEqual(selectionOutcome([ghost(6), lantern(9)], 15), {
+    result: 'match',
+    points: 0,
+    livesLost: 1,
+  });
 });

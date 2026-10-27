@@ -41,3 +41,41 @@ export function scoreFor(count) {
 export function unlockedAfter(level, score, unlocked) {
   return score >= UNLOCK_POINTS ? Math.max(unlocked, level + 1) : unlocked;
 }
+
+// Halloween mode is on by itself from Oct 25 to Nov 1, by the local date.
+export function isHalloweenSeason(date) {
+  const month = date.getMonth(); // 0 = January
+  const day = date.getDate();
+  return (month === 9 && day >= 25) || (month === 10 && day === 1);
+}
+
+// The theme a link asks for ('halloween' or 'classic'), or null.
+export function themeFromLink(search) {
+  const theme = new URLSearchParams(search).get('theme');
+  return theme === 'halloween' || theme === 'classic' ? theme : null;
+}
+
+// Strongest first: the link, then the remembered toggle (true, false or
+// null when never set), then the date.
+export function halloweenOn({ date, search = '', remembered = null }) {
+  const link = themeFromLink(search);
+  if (link) return link === 'halloween';
+  if (remembered !== null) return remembered;
+  return isHalloweenSeason(date);
+}
+
+// What a selection of lanterns ({ value, ghost }) does: 'match' and 'over'
+// resolve it, 'under' waits for more. A ghost in a resolved selection costs
+// one life and the selection scores nothing.
+export function selectionOutcome(lanterns, target = TARGET) {
+  const result = checkSelection(lanterns.map((l) => l.value), target);
+  if (result === 'under') return { result, points: 0, livesLost: 0 };
+  if (lanterns.some((l) => l.ghost)) return { result, points: 0, livesLost: 1 };
+  const points = result === 'match' ? scoreFor(lanterns.length) : 0;
+  return { result, points, livesLost: 0 };
+}
+
+// Lives a lantern costs when it reaches the top: a ghost flies away freely.
+export function escapeCost(lantern) {
+  return lantern.ghost ? 0 : 1;
+}

@@ -1,8 +1,9 @@
 import {
   ADVANCE_POINTS,
-  checkSelection,
+  escapeCost,
+  halloweenOn,
   levelSettings,
-  scoreFor,
+  selectionOutcome,
   unlockedAfter,
 } from './logic.js';
 
@@ -16,10 +17,18 @@ const SPAWN_TRIES = 20;
 const FLOAT_TIME = 0.8; // seconds a matched lantern takes to float away
 const SHAKE_TIME = 0.4;
 const SHAKE_AMPLITUDE = 3; // px, at most half of LANTERN_GAP
+// Never two ghosts in a row: a 1 in 7 chance after a normal lantern makes
+// about 1 lantern in 8 a ghost.
+const GHOST_CHANCE = 1 / 7;
+const GHOST_FLASH_TIME = 0.6;
+const BAT_COUNT = 4;
+const BAT_SPEED = [50, 90]; // px per second, slowest and fastest
+const BAT_FLAP = 9; // wing beats per second
 const MAX_STEP = 0.1; // seconds; longer frames (a hidden tab) are clamped
 const BEST_KEY = 'lantern-sums-best';
 const UNLOCKED_KEY = 'lantern-sums-unlocked';
 const BANNER_TIME = 1800; // ms the level banner stays up
+const HALLOWEEN_KEY = 'lantern-sums-halloween'; // 'on' or 'off', set by the toggle
 const DEMO_PICK_DELAY = 0.5; // seconds between two picks in attract mode
 const DEMO_REST = 0.8; // seconds after a match before the next group
 const DEMO_RETRY = 0.3; // seconds before looking again when no group adds up
@@ -47,8 +56,10 @@ const progressEl = document.querySelector('.hud-progress');
 const finalLevelEl = document.getElementById('final-level');
 const startLevelEl = document.getElementById('start-level');
 const bannerEl = document.getElementById('level-banner');
+const halloweenToggle = document.getElementById('halloween-toggle');
 
 let stars = [];
+let bats = [];
 let lanterns = [];
 let score = 0;
 let lives = LIVES;
@@ -65,6 +76,8 @@ let paused = false;
 let lastTime = 0;
 let frameId = 0;
 let nextId = 1;
+let halloween = false;
+let lastWasGhost = false;
 
 function lanternIcon() {
   return `<svg viewBox="0 0 22 32" aria-hidden="true">
@@ -75,8 +88,20 @@ function lanternIcon() {
   </svg>`;
 }
 
+function pumpkinIcon() {
+  return `<svg viewBox="0 0 22 32" aria-hidden="true">
+    <rect x="10" y="5" width="3" height="5" rx="1" fill="#4f6b22"/>
+    <ellipse cx="6.5" cy="19" rx="5.5" ry="8" fill="#e06a14"/>
+    <ellipse cx="15.5" cy="19" rx="5.5" ry="8" fill="#e06a14"/>
+    <ellipse cx="11" cy="19" rx="6" ry="9" fill="#ff8c1a"/>
+    <path d="M6 16 l3 2.5 h-3 z M16 16 l-3 2.5 h3 z" fill="#ffe08a"/>
+    <path d="M6.5 22 q4.5 3 9 0 q-4.5 1.5 -9 0 z" fill="#ffe08a"/>
+  </svg>`;
+}
+
 function buildLives() {
-  livesEl.innerHTML = lanternIcon().repeat(LIVES);
+  livesEl.innerHTML = (halloween ? pumpkinIcon() : lanternIcon()).repeat(LIVES);
+  renderLives();
 }
 
 // Lost lives stay in the bar, faded.
@@ -127,6 +152,41 @@ function unlock(value) {
 }
 
 // The bar runs from 0 to ADVANCE_POINTS; its marks at 100 and 200 are CSS.
+// The toggle's remembered choice: true, false, or null when never set.
+function readHalloweenChoice() {
+  try {
+    const value = localStorage.getItem(HALLOWEEN_KEY);
+    return value === 'on' ? true : value === 'off' ? false : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeHalloweenChoice(on) {
+  try {
+    localStorage.setItem(HALLOWEEN_KEY, on ? 'on' : 'off');
+  } catch {
+    // The choice is then kept for this page only.
+  }
+}
+
+function setHalloween(on) {
+  halloween = on;
+  // Ghosts exist only in Halloween mode.
+  if (!on) lanterns = lanterns.filter((l) => !l.ghost);
+  document.body.classList.toggle('halloween', on);
+  halloweenToggle.setAttribute('aria-checked', String(on));
+  buildLives();
+}
+
+// The toggle is the player's own choice, so it is remembered; a ?theme=
+// link only sets the mode for the visit and is not saved.
+function onHalloweenToggle() {
+  setHalloween(!halloween);
+  writeHalloweenChoice(halloween);
+  draw();
+}
+
 function renderScore() {
   scoreEl.textContent = score;
   const shown = Math.min(score, ADVANCE_POINTS);
@@ -153,12 +213,44 @@ function makeStars(width, height) {
   }));
 }
 
+// Bats are scenery: drawn behind the pumpkins and never hit by a click, so
+// they cannot hide a number or catch a tap.
+function makeBat(width, height, offscreen) {
+  const dir = Math.random() < 0.5 ? 1 : -1;
+  const speed = BAT_SPEED[0] + Math.random() * (BAT_SPEED[1] - BAT_SPEED[0]);
+  return {
+    x: offscreen ? (dir > 0 ? -40 : width + 40) : Math.random() * width,
+    y: height * (0.15 + Math.random() * 0.6),
+    dir,
+    speed,
+    size: 0.7 + Math.random() * 0.6,
+    phase: Math.random() * Math.PI * 2,
+  };
+}
+
+function makeBats(width, height) {
+  bats = Array.from({ length: BAT_COUNT }, () => makeBat(width, height, false));
+}
+
+function updateBats(dt) {
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  bats = bats.map((bat) => {
+    bat.x += bat.dir * bat.speed * dt;
+    bat.y += Math.sin(bat.phase * 0.3) * 12 * dt;
+    bat.phase += BAT_FLAP * dt;
+    const gone = bat.dir > 0 ? bat.x > w + 40 : bat.x < -40;
+    return gone ? makeBat(w, h, true) : bat;
+  });
+}
+
 function resize() {
   const dpr = window.devicePixelRatio || 1;
   canvas.width = Math.floor(window.innerWidth * dpr);
   canvas.height = Math.floor(window.innerHeight * dpr);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   makeStars(window.innerWidth, window.innerHeight);
+  makeBats(window.innerWidth, window.innerHeight);
   draw();
 }
 
@@ -187,15 +279,19 @@ function spawnLantern() {
   for (let i = 0; i < SPAWN_TRIES; i++) {
     const x = margin + Math.random() * (w - 2 * margin);
     if (!overlapsAny(x, y)) {
+      const ghost = halloween && !lastWasGhost && Math.random() < GHOST_CHANCE;
+      lastWasGhost = ghost;
       lanterns.push({
         id: nextId++,
         x,
         y,
         value: 1 + Math.floor(Math.random() * 9),
+        ghost,
         selected: false,
         floating: false,
         floatT: 0,
         shakeT: 0,
+        flashT: 0,
       });
       return;
     }
@@ -203,15 +299,26 @@ function spawnLantern() {
   // No free spot this time: skip this spawn.
 }
 
+function loseLives(count) {
+  if (!running || count === 0) return;
+  lives = Math.max(0, lives - count);
+  renderLives();
+  if (lives === 0) gameOver();
+}
+
 function resolveSelection() {
   const selected = selectedLanterns();
-  const result = checkSelection(
-    selected.map((l) => l.value),
-    settings.target,
-  );
-  if (result === 'match') {
+  const { result, points, livesLost } = selectionOutcome(selected, settings.target);
+  if (livesLost > 0) {
+    // A ghost sprang the trap: it flashes and the selection clears.
+    for (const l of selected) {
+      l.selected = false;
+      if (l.ghost) l.flashT = GHOST_FLASH_TIME;
+    }
+    loseLives(livesLost);
+  } else if (result === 'match') {
     if (running) {
-      score += scoreFor(selected.length);
+      score += points;
       renderScore();
     }
     for (const l of selected) {
@@ -253,7 +360,7 @@ function findDemoGroup() {
   const top = hudEl.getBoundingClientRect().bottom + LANTERN_RADIUS;
   const bottom = window.innerHeight - LANTERN_RADIUS;
   const candidates = activeLanterns()
-    .filter((l) => l.y >= top && l.y <= bottom)
+    .filter((l) => !l.ghost && l.y >= top && l.y <= bottom)
     .sort((a, b) => a.y - b.y)
     .slice(0, DEMO_CANDIDATES);
 
@@ -310,28 +417,32 @@ function update(dt) {
     l.y -= settings.speed * dt;
     if (l.floating) l.floatT += dt;
     if (l.shakeT > 0) l.shakeT = Math.max(0, l.shakeT - dt);
+    if (l.flashT > 0) l.flashT = Math.max(0, l.flashT - dt);
   }
 
+  if (halloween) updateBats(dt);
   if (demo) runDemo(dt);
 
   // A lantern whose top edge reaches the top of the sky costs a life and is
-  // dropped (from the selection too). Matched lanterns floating away cost
-  // nothing; they are dropped once faded. In attract mode no life is lost.
+  // dropped (from the selection too). A ghost there fades out for free, like
+  // matched lanterns floating away; both are dropped once faded. In attract
+  // mode no life is lost.
   let escaped = 0;
   lanterns = lanterns.filter((l) => {
     if (l.floating) return l.floatT < FLOAT_TIME;
     if (l.y - LANTERN_RADIUS <= 0) {
-      escaped++;
+      escaped += escapeCost(l);
+      if (l.ghost) {
+        l.selected = false;
+        l.floating = true;
+        return true;
+      }
       return false;
     }
     return true;
   });
 
-  if (escaped > 0 && running) {
-    lives = Math.max(0, lives - escaped);
-    renderLives();
-    if (lives === 0) gameOver();
-  }
+  loseLives(escaped);
 }
 
 function drawSky() {
@@ -339,9 +450,16 @@ function drawSky() {
   const h = window.innerHeight;
 
   const gradient = ctx.createLinearGradient(0, 0, 0, h);
-  gradient.addColorStop(0, '#050d24');
-  gradient.addColorStop(0.6, '#0b1a3a');
-  gradient.addColorStop(1, '#16295a');
+  if (halloween) {
+    gradient.addColorStop(0, '#1a0b2e');
+    gradient.addColorStop(0.45, '#4a1b5e');
+    gradient.addColorStop(0.8, '#a83f4a');
+    gradient.addColorStop(1, '#f07b2a');
+  } else {
+    gradient.addColorStop(0, '#050d24');
+    gradient.addColorStop(0.6, '#0b1a3a');
+    gradient.addColorStop(1, '#16295a');
+  }
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, w, h);
 
@@ -353,6 +471,60 @@ function drawSky() {
     ctx.fill();
   }
   ctx.globalAlpha = 1;
+
+  if (halloween) {
+    drawMoon(w, h);
+    for (const bat of bats) drawBat(bat);
+  }
+}
+
+function drawMoon(w, h) {
+  const r = Math.min(w, h) * 0.11;
+  const x = w * 0.8;
+  const y = Math.max(h * 0.25, hudEl.getBoundingClientRect().bottom + r);
+  ctx.save();
+  ctx.shadowColor = 'rgba(255, 236, 190, 0.6)';
+  ctx.shadowBlur = r * 0.8;
+  ctx.fillStyle = '#fff1cf';
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = 'rgba(210, 180, 140, 0.35)';
+  for (const [dx, dy, cr] of [[-0.3, -0.2, 0.18], [0.25, 0.1, 0.13], [-0.05, 0.4, 0.1]]) {
+    ctx.beginPath();
+    ctx.arc(x + dx * r, y + dy * r, cr * r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawBat(bat) {
+  const flap = Math.sin(bat.phase); // -1 wings down, 1 wings up
+  ctx.save();
+  ctx.translate(bat.x, bat.y);
+  ctx.scale(bat.size * bat.dir, bat.size);
+  ctx.fillStyle = '#1a0f1f';
+  for (const side of [-1, 1]) {
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.quadraticCurveTo(side * 10, -12 * flap - 4, side * 22, -10 * flap);
+    ctx.quadraticCurveTo(side * 16, -4 * flap + 2, side * 14, 2);
+    ctx.quadraticCurveTo(side * 9, -2 * flap + 1, side * 6, 3);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.beginPath();
+  ctx.ellipse(0, 1, 4, 5, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(-3, -3);
+  ctx.lineTo(-2, -7);
+  ctx.lineTo(0, -4);
+  ctx.lineTo(2, -7);
+  ctx.lineTo(3, -3);
+  ctx.fill();
+  ctx.restore();
 }
 
 // Paper lantern, drawn around (0, 0) in units where it fits a circle of 30;
@@ -435,7 +607,146 @@ function drawPaperLantern(value, selected) {
     ctx.stroke();
   }
 
-  // A light halo keeps the number readable over the ribs.
+  drawNumber(value);
+}
+
+// Jack-o'-lantern in the same units as the paper lantern, so it is the same
+// size on screen and uses the same circle for spacing and clicks.
+const PUMPKIN_RX = 27;
+const PUMPKIN_RY = 22;
+const PUMPKIN_LOBES = [
+  { x: -15, rx: 13, shade: '#c9520e' },
+  { x: 15, rx: 13, shade: '#c9520e' },
+  { x: -7, rx: 14, shade: '#e8650f' },
+  { x: 7, rx: 14, shade: '#e8650f' },
+  { x: 0, rx: 13, shade: '#f57a14' },
+];
+
+function pumpkinBodyPath() {
+  ctx.beginPath();
+  ctx.ellipse(0, 3, PUMPKIN_RX, PUMPKIN_RY, 0, 0, Math.PI * 2);
+}
+
+function drawPumpkin(value, selected) {
+  // Stem and leaf
+  ctx.fillStyle = '#4f6b22';
+  ctx.beginPath();
+  ctx.roundRect(-3, -27, 6, 10, 2);
+  ctx.fill();
+  ctx.strokeStyle = '#6d8f2c';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(2, -22);
+  ctx.quadraticCurveTo(10, -28, 14, -21);
+  ctx.stroke();
+
+  // Lobes, lit from inside
+  if (selected) {
+    ctx.shadowColor = 'rgba(255, 225, 130, 0.95)';
+    ctx.shadowBlur = 22;
+  }
+  for (const lobe of PUMPKIN_LOBES) {
+    const g = ctx.createRadialGradient(lobe.x * 0.4, 3, 2, lobe.x, 3, PUMPKIN_RY);
+    g.addColorStop(0, '#ffcf6a');
+    g.addColorStop(0.5, lobe.shade);
+    g.addColorStop(1, '#8f3307');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.ellipse(lobe.x, 3, lobe.rx, PUMPKIN_RY, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.shadowBlur = 0;
+
+  // Candle glow through the shell
+  ctx.save();
+  pumpkinBodyPath();
+  ctx.clip();
+  const glow = ctx.createRadialGradient(0, 2, 2, 0, 2, 20);
+  glow.addColorStop(0, 'rgba(255, 236, 150, 0.85)');
+  glow.addColorStop(1, 'rgba(255, 180, 60, 0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(-PUMPKIN_RX, -PUMPKIN_RY, 2 * PUMPKIN_RX, 2 * PUMPKIN_RY + 6);
+  ctx.restore();
+
+  // Carved eyes and grin, clear of the number
+  ctx.fillStyle = '#ffe48a';
+  for (const side of [-1, 1]) {
+    ctx.beginPath();
+    ctx.moveTo(side * 11, -10);
+    ctx.lineTo(side * 20, -12);
+    ctx.lineTo(side * 17, -4);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.beginPath();
+  ctx.moveTo(-15, 15);
+  ctx.quadraticCurveTo(0, 25, 15, 15);
+  ctx.quadraticCurveTo(0, 20, -15, 15);
+  ctx.fill();
+
+  if (selected) {
+    ctx.strokeStyle = '#ffe9a8';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.ellipse(0, 3, PUMPKIN_RX + 2, PUMPKIN_RY + 2, 0, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  drawNumber(value);
+}
+
+// Ghost: a pale sheet with a wavy hem, in the same units as the lantern.
+function ghostPath() {
+  ctx.beginPath();
+  ctx.moveTo(-20, 22);
+  ctx.lineTo(-20, -6);
+  ctx.arc(0, -6, 20, Math.PI, 0);
+  ctx.lineTo(20, 22);
+  for (let i = 0; i < 4; i++) {
+    const x = 20 - i * 10;
+    ctx.quadraticCurveTo(x - 2.5, 28, x - 5, 22);
+    ctx.quadraticCurveTo(x - 7.5, 16, x - 10, 22);
+  }
+  ctx.closePath();
+}
+
+function drawGhost(value, selected, flashT) {
+  const flash = flashT > 0 ? Math.abs(Math.sin((flashT / GHOST_FLASH_TIME) * Math.PI * 3)) : 0;
+  ctx.save();
+  ctx.globalAlpha *= 0.6 + 0.4 * flash;
+  if (selected || flash > 0) {
+    ctx.shadowColor = flash > 0 ? 'rgba(190, 255, 220, 1)' : 'rgba(255, 225, 130, 0.95)';
+    ctx.shadowBlur = 22 + 20 * flash;
+  }
+  const sheet = ctx.createLinearGradient(0, -26, 0, 26);
+  sheet.addColorStop(0, '#f4f7ff');
+  sheet.addColorStop(1, flash > 0 ? '#d9fff0' : '#b9c3e6');
+  ctx.fillStyle = sheet;
+  ghostPath();
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  // Hollow eyes, above the number
+  ctx.fillStyle = '#2a2f4a';
+  for (const side of [-1, 1]) {
+    ctx.beginPath();
+    ctx.ellipse(side * 9, -14, 3, 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  if (selected) {
+    ctx.strokeStyle = '#ffe9a8';
+    ctx.lineWidth = 3;
+    ghostPath();
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  drawNumber(value);
+}
+
+// A light halo keeps the number readable over the drawing.
+function drawNumber(value) {
   ctx.font = '800 27px system-ui, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
@@ -469,7 +780,9 @@ function drawLantern(l) {
   ctx.globalAlpha = alpha;
   ctx.translate(x, y);
   ctx.scale(scale * LANTERN_SIZE, scale * LANTERN_SIZE);
-  drawPaperLantern(l.value, l.selected);
+  if (l.ghost) drawGhost(l.value, l.selected, l.flashT);
+  else if (halloween) drawPumpkin(l.value, l.selected);
+  else drawPaperLantern(l.value, l.selected);
   ctx.restore();
 }
 
@@ -528,6 +841,7 @@ function enterLevel(n) {
   level = n;
   settings = levelSettings(level);
   lanterns = [];
+  lastWasGhost = false;
   score = 0;
   lives = LIVES;
   spawnTimer = settings.interval; // first lantern right away
@@ -586,6 +900,7 @@ function onKeyDown(event) {
 startButton.addEventListener('click', () => startGame(unlocked));
 againButton.addEventListener('click', () => startGame(level));
 nextButton.addEventListener('click', () => startGame(level + 1));
+halloweenToggle.addEventListener('click', onHalloweenToggle);
 canvas.addEventListener('pointerdown', onPointerDown);
 window.addEventListener('keydown', onKeyDown);
 window.addEventListener('resize', resize);
@@ -593,8 +908,13 @@ window.addEventListener('resize', resize);
 unlocked = readUnlocked();
 renderStartLevel();
 renderLevel();
-buildLives();
-renderLives();
+setHalloween(
+  halloweenOn({
+    date: new Date(),
+    search: location.search,
+    remembered: readHalloweenChoice(),
+  }),
+);
 renderScore();
 resize();
 startDemo();
