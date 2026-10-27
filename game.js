@@ -57,6 +57,7 @@ const finalLevelEl = document.getElementById('final-level');
 const startLevelEl = document.getElementById('start-level');
 const bannerEl = document.getElementById('level-banner');
 const halloweenToggle = document.getElementById('halloween-toggle');
+const titleEl = document.getElementById('title');
 
 let stars = [];
 let bats = [];
@@ -176,6 +177,8 @@ function setHalloween(on) {
   if (!on) lanterns = lanterns.filter((l) => !l.ghost);
   document.body.classList.toggle('halloween', on);
   halloweenToggle.setAttribute('aria-checked', String(on));
+  titleEl.textContent = on ? 'Pumpkin Sums' : 'Lantern Sums';
+  document.title = titleEl.textContent;
   buildLives();
 }
 

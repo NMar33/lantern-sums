@@ -68,6 +68,7 @@ body.halloween {
   display: flex;
   align-items: center;
   gap: 16px;
+  margin-bottom: 1.1em; /* room for the mark labels under the bar */
   font-size: 0.55em;
 }
 
@@ -79,31 +80,44 @@ body.halloween {
 .hud-progress {
   position: relative;
   flex: 1;
-  height: 10px;
-  margin-right: 12px;
+  height: 22px;
+  margin-right: 24px;
+  border: 2px solid rgba(255, 154, 60, 0.85);
   border-radius: 999px;
-  background: rgba(245, 233, 200, 0.18);
+  background: rgba(20, 8, 30, 0.55);
+  box-shadow: 0 0 12px rgba(255, 140, 40, 0.35);
 }
 
 .hud-progress-fill {
   height: 100%;
   width: 0;
   border-radius: inherit;
-  background: linear-gradient(90deg, #ff9a3c, #ffd27a);
+  background: linear-gradient(#ffb04a, #ff7a12);
+  box-shadow: 0 0 10px rgba(255, 130, 30, 0.8);
   transition: width 0.3s ease;
 }
 
+/* A tick across the bar, with its number in a badge below. */
 .hud-progress-mark {
   position: absolute;
-  top: -4px;
-  height: 18px;
-  border-left: 2px solid #ffd27a;
-  padding-top: 18px;
-  transform: translateX(-1px);
-  font-size: 0.7rem;
-  line-height: 1;
-  text-indent: -1.1em;
-  opacity: 0.85;
+  top: -6px;
+  height: 30px;
+  border-left: 3px solid #fff1cf;
+  transform: translateX(-1.5px);
+}
+
+.hud-progress-mark span {
+  position: absolute;
+  top: 32px;
+  left: 0;
+  transform: translateX(-50%);
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: clamp(0.8rem, 2.6vw, 1rem);
+  font-weight: 800;
+  line-height: 1.2;
+  color: #2a1700;
+  background: #ffc35c;
 }
 
 .hud-lives svg.lost {
