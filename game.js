@@ -21,6 +21,9 @@ const SHAKE_AMPLITUDE = 3; // px, at most half of LANTERN_GAP
 // about 1 lantern in 8 a ghost.
 const GHOST_CHANCE = 1 / 7;
 const GHOST_FLASH_TIME = 0.6;
+const BAT_COUNT = 4;
+const BAT_SPEED = [50, 90]; // px per second, slowest and fastest
+const BAT_FLAP = 9; // wing beats per second
 const MAX_STEP = 0.1; // seconds; longer frames (a hidden tab) are clamped
 const BEST_KEY = 'lantern-sums-best';
 const HALLOWEEN_KEY = 'lantern-sums-halloween'; // 'on' or 'off', set by the toggle
@@ -47,6 +50,7 @@ const againButton = document.getElementById('again-button');
 const halloweenToggle = document.getElementById('halloween-toggle');
 
 let stars = [];
+let bats = [];
 let lanterns = [];
 let score = 0;
 let lives = LIVES;
@@ -160,12 +164,44 @@ function makeStars(width, height) {
   }));
 }
 
+// Bats are scenery: drawn behind the pumpkins and never hit by a click, so
+// they cannot hide a number or catch a tap.
+function makeBat(width, height, offscreen) {
+  const dir = Math.random() < 0.5 ? 1 : -1;
+  const speed = BAT_SPEED[0] + Math.random() * (BAT_SPEED[1] - BAT_SPEED[0]);
+  return {
+    x: offscreen ? (dir > 0 ? -40 : width + 40) : Math.random() * width,
+    y: height * (0.15 + Math.random() * 0.6),
+    dir,
+    speed,
+    size: 0.7 + Math.random() * 0.6,
+    phase: Math.random() * Math.PI * 2,
+  };
+}
+
+function makeBats(width, height) {
+  bats = Array.from({ length: BAT_COUNT }, () => makeBat(width, height, false));
+}
+
+function updateBats(dt) {
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  bats = bats.map((bat) => {
+    bat.x += bat.dir * bat.speed * dt;
+    bat.y += Math.sin(bat.phase * 0.3) * 12 * dt;
+    bat.phase += BAT_FLAP * dt;
+    const gone = bat.dir > 0 ? bat.x > w + 40 : bat.x < -40;
+    return gone ? makeBat(w, h, true) : bat;
+  });
+}
+
 function resize() {
   const dpr = window.devicePixelRatio || 1;
   canvas.width = Math.floor(window.innerWidth * dpr);
   canvas.height = Math.floor(window.innerHeight * dpr);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   makeStars(window.innerWidth, window.innerHeight);
+  makeBats(window.innerWidth, window.innerHeight);
   draw();
 }
 
@@ -331,6 +367,7 @@ function update(dt) {
     if (l.flashT > 0) l.flashT = Math.max(0, l.flashT - dt);
   }
 
+  if (halloween) updateBats(dt);
   if (demo) runDemo(dt);
 
   // A lantern whose top edge reaches the top of the sky costs a life and is
@@ -360,9 +397,16 @@ function drawSky() {
   const h = window.innerHeight;
 
   const gradient = ctx.createLinearGradient(0, 0, 0, h);
-  gradient.addColorStop(0, '#050d24');
-  gradient.addColorStop(0.6, '#0b1a3a');
-  gradient.addColorStop(1, '#16295a');
+  if (halloween) {
+    gradient.addColorStop(0, '#1a0b2e');
+    gradient.addColorStop(0.45, '#4a1b5e');
+    gradient.addColorStop(0.8, '#a83f4a');
+    gradient.addColorStop(1, '#f07b2a');
+  } else {
+    gradient.addColorStop(0, '#050d24');
+    gradient.addColorStop(0.6, '#0b1a3a');
+    gradient.addColorStop(1, '#16295a');
+  }
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, w, h);
 
@@ -374,6 +418,60 @@ function drawSky() {
     ctx.fill();
   }
   ctx.globalAlpha = 1;
+
+  if (halloween) {
+    drawMoon(w, h);
+    for (const bat of bats) drawBat(bat);
+  }
+}
+
+function drawMoon(w, h) {
+  const r = Math.min(w, h) * 0.11;
+  const x = w * 0.8;
+  const y = Math.max(h * 0.25, hudEl.getBoundingClientRect().bottom + r);
+  ctx.save();
+  ctx.shadowColor = 'rgba(255, 236, 190, 0.6)';
+  ctx.shadowBlur = r * 0.8;
+  ctx.fillStyle = '#fff1cf';
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = 'rgba(210, 180, 140, 0.35)';
+  for (const [dx, dy, cr] of [[-0.3, -0.2, 0.18], [0.25, 0.1, 0.13], [-0.05, 0.4, 0.1]]) {
+    ctx.beginPath();
+    ctx.arc(x + dx * r, y + dy * r, cr * r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawBat(bat) {
+  const flap = Math.sin(bat.phase); // -1 wings down, 1 wings up
+  ctx.save();
+  ctx.translate(bat.x, bat.y);
+  ctx.scale(bat.size * bat.dir, bat.size);
+  ctx.fillStyle = '#1a0f1f';
+  for (const side of [-1, 1]) {
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.quadraticCurveTo(side * 10, -12 * flap - 4, side * 22, -10 * flap);
+    ctx.quadraticCurveTo(side * 16, -4 * flap + 2, side * 14, 2);
+    ctx.quadraticCurveTo(side * 9, -2 * flap + 1, side * 6, 3);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.beginPath();
+  ctx.ellipse(0, 1, 4, 5, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(-3, -3);
+  ctx.lineTo(-2, -7);
+  ctx.lineTo(0, -4);
+  ctx.lineTo(2, -7);
+  ctx.lineTo(3, -3);
+  ctx.fill();
+  ctx.restore();
 }
 
 // Paper lantern, drawn around (0, 0) in units where it fits a circle of 30;
