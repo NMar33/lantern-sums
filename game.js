@@ -1,4 +1,4 @@
-import { TARGET, checkSelection, scoreFor } from './logic.js';
+import { TARGET, checkSelection, scoreFor, halloweenOn } from './logic.js';
 
 const LIVES = 3;
 const STAR_COUNT = 160;
@@ -14,6 +14,7 @@ const SHAKE_TIME = 0.4;
 const SHAKE_AMPLITUDE = 3; // px, at most half of LANTERN_GAP
 const MAX_STEP = 0.1; // seconds; longer frames (a hidden tab) are clamped
 const BEST_KEY = 'lantern-sums-best';
+const HALLOWEEN_KEY = 'lantern-sums-halloween'; // 'on' or 'off', set by the toggle
 const DEMO_PICK_DELAY = 0.5; // seconds between two picks in attract mode
 const DEMO_REST = 0.8; // seconds after a match before the next group
 const DEMO_RETRY = 0.3; // seconds before looking again when no group adds up
@@ -48,6 +49,7 @@ let paused = false;
 let lastTime = 0;
 let frameId = 0;
 let nextId = 1;
+let halloween = false;
 
 function lanternIcon() {
   return `<svg viewBox="0 0 22 32" aria-hidden="true">
@@ -85,6 +87,21 @@ function writeBest(value) {
   } catch {
     // The best score is then kept for this page only.
   }
+}
+
+// The toggle's remembered choice: true, false, or null when never set.
+function readHalloweenChoice() {
+  try {
+    const value = localStorage.getItem(HALLOWEEN_KEY);
+    return value === 'on' ? true : value === 'off' ? false : null;
+  } catch {
+    return null;
+  }
+}
+
+function setHalloween(on) {
+  halloween = on;
+  document.body.classList.toggle('halloween', on);
 }
 
 function renderScore() {
@@ -491,6 +508,13 @@ canvas.addEventListener('pointerdown', onPointerDown);
 window.addEventListener('keydown', onKeyDown);
 window.addEventListener('resize', resize);
 
+setHalloween(
+  halloweenOn({
+    date: new Date(),
+    search: location.search,
+    remembered: readHalloweenChoice(),
+  }),
+);
 targetEl.textContent = TARGET;
 buildLives();
 renderLives();

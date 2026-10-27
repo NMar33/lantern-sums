@@ -1,6 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { sumOf, checkSelection, scoreFor } from '../logic.js';
+import {
+  sumOf,
+  checkSelection,
+  scoreFor,
+  isHalloweenSeason,
+  themeFromLink,
+  halloweenOn,
+} from '../logic.js';
 
 test('sumOf adds the numbers', () => {
   assert.equal(sumOf([]), 0);
@@ -47,4 +54,60 @@ test('scoreFor pays 60 for four or more lanterns', () => {
   assert.equal(scoreFor(4), 60);
   assert.equal(scoreFor(5), 60);
   assert.equal(scoreFor(9), 60);
+});
+
+// Months are 0-based in Date: 9 is October, 10 is November.
+const oct = (day) => new Date(2026, 9, day);
+
+test('Halloween season runs from Oct 25 to Nov 1', () => {
+  assert.equal(isHalloweenSeason(oct(24)), false);
+  assert.equal(isHalloweenSeason(oct(25)), true);
+  assert.equal(isHalloweenSeason(oct(31)), true);
+  assert.equal(isHalloweenSeason(new Date(2026, 10, 1)), true);
+  assert.equal(isHalloweenSeason(new Date(2026, 10, 2)), false);
+});
+
+test('Halloween season comes back every year', () => {
+  assert.equal(isHalloweenSeason(new Date(2031, 9, 28)), true);
+});
+
+test('themeFromLink reads ?theme= and ignores other values', () => {
+  assert.equal(themeFromLink('?theme=halloween'), 'halloween');
+  assert.equal(themeFromLink('?theme=classic'), 'classic');
+  assert.equal(themeFromLink('?theme=space'), null);
+  assert.equal(themeFromLink(''), null);
+});
+
+test('halloweenOn follows the date when nothing else is set', () => {
+  assert.equal(halloweenOn({ date: oct(31) }), true);
+  assert.equal(halloweenOn({ date: new Date(2026, 5, 15) }), false);
+});
+
+test('?theme=halloween turns it on in June', () => {
+  const june = new Date(2026, 5, 15);
+  assert.equal(halloweenOn({ date: june, search: '?theme=halloween' }), true);
+});
+
+test('?theme=classic turns it off on Oct 31', () => {
+  assert.equal(halloweenOn({ date: oct(31), search: '?theme=classic' }), false);
+});
+
+test('a remembered toggle "off" turns it off on Oct 31', () => {
+  assert.equal(halloweenOn({ date: oct(31), remembered: false }), false);
+});
+
+test('a remembered toggle "on" turns it on in June', () => {
+  const june = new Date(2026, 5, 15);
+  assert.equal(halloweenOn({ date: june, remembered: true }), true);
+});
+
+test('the link wins over the remembered toggle', () => {
+  assert.equal(
+    halloweenOn({ date: oct(31), search: '?theme=halloween', remembered: false }),
+    true,
+  );
+  assert.equal(
+    halloweenOn({ date: oct(31), search: '?theme=classic', remembered: true }),
+    false,
+  );
 });
