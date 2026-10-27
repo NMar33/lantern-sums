@@ -60,8 +60,20 @@ function lanternIcon() {
   </svg>`;
 }
 
+function pumpkinIcon() {
+  return `<svg viewBox="0 0 22 32" aria-hidden="true">
+    <rect x="10" y="5" width="3" height="5" rx="1" fill="#4f6b22"/>
+    <ellipse cx="6.5" cy="19" rx="5.5" ry="8" fill="#e06a14"/>
+    <ellipse cx="15.5" cy="19" rx="5.5" ry="8" fill="#e06a14"/>
+    <ellipse cx="11" cy="19" rx="6" ry="9" fill="#ff8c1a"/>
+    <path d="M6 16 l3 2.5 h-3 z M16 16 l-3 2.5 h3 z" fill="#ffe08a"/>
+    <path d="M6.5 22 q4.5 3 9 0 q-4.5 1.5 -9 0 z" fill="#ffe08a"/>
+  </svg>`;
+}
+
 function buildLives() {
-  livesEl.innerHTML = lanternIcon().repeat(LIVES);
+  livesEl.innerHTML = (halloween ? pumpkinIcon() : lanternIcon()).repeat(LIVES);
+  renderLives();
 }
 
 // Lost lives stay in the bar, faded.
@@ -102,6 +114,7 @@ function readHalloweenChoice() {
 function setHalloween(on) {
   halloween = on;
   document.body.classList.toggle('halloween', on);
+  buildLives();
 }
 
 function renderScore() {
@@ -392,7 +405,96 @@ function drawPaperLantern(value, selected) {
     ctx.stroke();
   }
 
-  // A light halo keeps the number readable over the ribs.
+  drawNumber(value);
+}
+
+// Jack-o'-lantern in the same units as the paper lantern, so it is the same
+// size on screen and uses the same circle for spacing and clicks.
+const PUMPKIN_RX = 27;
+const PUMPKIN_RY = 22;
+const PUMPKIN_LOBES = [
+  { x: -15, rx: 13, shade: '#c9520e' },
+  { x: 15, rx: 13, shade: '#c9520e' },
+  { x: -7, rx: 14, shade: '#e8650f' },
+  { x: 7, rx: 14, shade: '#e8650f' },
+  { x: 0, rx: 13, shade: '#f57a14' },
+];
+
+function pumpkinBodyPath() {
+  ctx.beginPath();
+  ctx.ellipse(0, 3, PUMPKIN_RX, PUMPKIN_RY, 0, 0, Math.PI * 2);
+}
+
+function drawPumpkin(value, selected) {
+  // Stem and leaf
+  ctx.fillStyle = '#4f6b22';
+  ctx.beginPath();
+  ctx.roundRect(-3, -27, 6, 10, 2);
+  ctx.fill();
+  ctx.strokeStyle = '#6d8f2c';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(2, -22);
+  ctx.quadraticCurveTo(10, -28, 14, -21);
+  ctx.stroke();
+
+  // Lobes, lit from inside
+  if (selected) {
+    ctx.shadowColor = 'rgba(255, 225, 130, 0.95)';
+    ctx.shadowBlur = 22;
+  }
+  for (const lobe of PUMPKIN_LOBES) {
+    const g = ctx.createRadialGradient(lobe.x * 0.4, 3, 2, lobe.x, 3, PUMPKIN_RY);
+    g.addColorStop(0, '#ffcf6a');
+    g.addColorStop(0.5, lobe.shade);
+    g.addColorStop(1, '#8f3307');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.ellipse(lobe.x, 3, lobe.rx, PUMPKIN_RY, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.shadowBlur = 0;
+
+  // Candle glow through the shell
+  ctx.save();
+  pumpkinBodyPath();
+  ctx.clip();
+  const glow = ctx.createRadialGradient(0, 2, 2, 0, 2, 20);
+  glow.addColorStop(0, 'rgba(255, 236, 150, 0.85)');
+  glow.addColorStop(1, 'rgba(255, 180, 60, 0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(-PUMPKIN_RX, -PUMPKIN_RY, 2 * PUMPKIN_RX, 2 * PUMPKIN_RY + 6);
+  ctx.restore();
+
+  // Carved eyes and grin, clear of the number
+  ctx.fillStyle = '#ffe48a';
+  for (const side of [-1, 1]) {
+    ctx.beginPath();
+    ctx.moveTo(side * 11, -10);
+    ctx.lineTo(side * 20, -12);
+    ctx.lineTo(side * 17, -4);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.beginPath();
+  ctx.moveTo(-15, 15);
+  ctx.quadraticCurveTo(0, 25, 15, 15);
+  ctx.quadraticCurveTo(0, 20, -15, 15);
+  ctx.fill();
+
+  if (selected) {
+    ctx.strokeStyle = '#ffe9a8';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.ellipse(0, 3, PUMPKIN_RX + 2, PUMPKIN_RY + 2, 0, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  drawNumber(value);
+}
+
+// A light halo keeps the number readable over the drawing.
+function drawNumber(value) {
   ctx.font = '800 27px system-ui, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
@@ -426,7 +528,8 @@ function drawLantern(l) {
   ctx.globalAlpha = alpha;
   ctx.translate(x, y);
   ctx.scale(scale * LANTERN_SIZE, scale * LANTERN_SIZE);
-  drawPaperLantern(l.value, l.selected);
+  if (halloween) drawPumpkin(l.value, l.selected);
+  else drawPaperLantern(l.value, l.selected);
   ctx.restore();
 }
 
@@ -516,8 +619,6 @@ setHalloween(
   }),
 );
 targetEl.textContent = TARGET;
-buildLives();
-renderLives();
 renderScore();
 resize();
 startDemo();
