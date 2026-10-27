@@ -1,10 +1,14 @@
-import { TARGET, checkSelection, scoreFor } from './logic.js';
+import {
+  ADVANCE_POINTS,
+  checkSelection,
+  levelSettings,
+  scoreFor,
+  unlockedAfter,
+} from './logic.js';
 
 const LIVES = 3;
 const STAR_COUNT = 160;
 
-const SPAWN_INTERVAL = 1.2; // seconds
-const RISE_SPEED = 40; // px per second
 const LANTERN_SIZE = 1.5; // drawing scale of the paper lantern
 const LANTERN_RADIUS = 30 * LANTERN_SIZE; // the whole lantern fits in this circle
 const LANTERN_GAP = 8; // minimum space between two lanterns
@@ -14,6 +18,8 @@ const SHAKE_TIME = 0.4;
 const SHAKE_AMPLITUDE = 3; // px, at most half of LANTERN_GAP
 const MAX_STEP = 0.1; // seconds; longer frames (a hidden tab) are clamped
 const BEST_KEY = 'lantern-sums-best';
+const UNLOCKED_KEY = 'lantern-sums-unlocked';
+const BANNER_TIME = 1800; // ms the level banner stays up
 const DEMO_PICK_DELAY = 0.5; // seconds between two picks in attract mode
 const DEMO_REST = 0.8; // seconds after a match before the next group
 const DEMO_RETRY = 0.3; // seconds before looking again when no group adds up
@@ -34,11 +40,22 @@ const gameOverOverlay = document.getElementById('gameover-overlay');
 const finalScoreEl = document.getElementById('final-score');
 const bestScoreEl = document.getElementById('best-score');
 const againButton = document.getElementById('again-button');
+const nextButton = document.getElementById('next-button');
+const levelEl = document.getElementById('level');
+const progressFillEl = document.getElementById('progress-fill');
+const progressEl = document.querySelector('.hud-progress');
+const finalLevelEl = document.getElementById('final-level');
+const startLevelEl = document.getElementById('start-level');
+const bannerEl = document.getElementById('level-banner');
 
 let stars = [];
 let lanterns = [];
 let score = 0;
 let lives = LIVES;
+let level = 1;
+let settings = levelSettings(1); // speed, spawn interval and target
+let unlocked = 1; // highest level the player may start
+let bannerTimer = 0;
 let spawnTimer = 0;
 let running = false;
 let demo = false; // attract mode behind the start overlay
@@ -87,8 +104,44 @@ function writeBest(value) {
   }
 }
 
+function readUnlocked() {
+  try {
+    return Math.max(1, Math.floor(Number(localStorage.getItem(UNLOCKED_KEY))) || 1);
+  } catch {
+    return 1;
+  }
+}
+
+function writeUnlocked(value) {
+  try {
+    localStorage.setItem(UNLOCKED_KEY, String(value));
+  } catch {
+    // The unlocked level is then kept for this page only.
+  }
+}
+
+function unlock(value) {
+  if (value <= unlocked) return;
+  unlocked = value;
+  writeUnlocked(unlocked);
+}
+
+// The bar runs from 0 to ADVANCE_POINTS; its marks at 100 and 200 are CSS.
 function renderScore() {
   scoreEl.textContent = score;
+  const shown = Math.min(score, ADVANCE_POINTS);
+  progressFillEl.style.width = `${(100 * shown) / ADVANCE_POINTS}%`;
+  progressEl.setAttribute('aria-valuenow', String(shown));
+}
+
+function renderLevel() {
+  levelEl.textContent = level;
+  targetEl.textContent = settings.target;
+}
+
+function renderStartLevel() {
+  startLevelEl.textContent = `Starts at level ${unlocked}`;
+  startLevelEl.hidden = unlocked === 1;
 }
 
 function makeStars(width, height) {
@@ -152,7 +205,10 @@ function spawnLantern() {
 
 function resolveSelection() {
   const selected = selectedLanterns();
-  const result = checkSelection(selected.map((l) => l.value));
+  const result = checkSelection(
+    selected.map((l) => l.value),
+    settings.target,
+  );
   if (result === 'match') {
     if (running) {
       score += scoreFor(selected.length);
@@ -161,6 +217,10 @@ function resolveSelection() {
     for (const l of selected) {
       l.selected = false;
       l.floating = true;
+    }
+    if (running) {
+      unlock(unlockedAfter(level, score, unlocked));
+      if (score >= ADVANCE_POINTS) advanceLevel();
     }
   } else if (result === 'over') {
     for (const l of selected) {
@@ -200,11 +260,11 @@ function findDemoGroup() {
   let best = null;
   const group = [];
   function search(start, total) {
-    if (total === TARGET && group.length >= 2) {
+    if (total === settings.target && group.length >= 2) {
       if (!best || group[0].y < best[0].y) best = [...group];
       return;
     }
-    if (total >= TARGET || group.length === DEMO_MAX_GROUP) return;
+    if (total >= settings.target || group.length === DEMO_MAX_GROUP) return;
     for (let i = start; i < candidates.length; i++) {
       group.push(candidates[i]);
       search(i + 1, total + candidates[i].value);
@@ -241,13 +301,13 @@ function runDemo(dt) {
 
 function update(dt) {
   spawnTimer += dt;
-  while (spawnTimer >= SPAWN_INTERVAL) {
-    spawnTimer -= SPAWN_INTERVAL;
+  while (spawnTimer >= settings.interval) {
+    spawnTimer -= settings.interval;
     spawnLantern();
   }
 
   for (const l of lanterns) {
-    l.y -= RISE_SPEED * dt;
+    l.y -= settings.speed * dt;
     if (l.floating) l.floatT += dt;
     if (l.shakeT > 0) l.shakeT = Math.max(0, l.shakeT - dt);
   }
@@ -438,13 +498,51 @@ function startDemo() {
   demo = true;
   demoPlan = [];
   demoTimer = DEMO_REST;
+  settings = levelSettings(1);
   lanterns = [];
-  spawnTimer = SPAWN_INTERVAL;
+  spawnTimer = settings.interval;
   for (let t = 0; t < DEMO_WARMUP; t += MAX_STEP) update(MAX_STEP);
   startLoop();
 }
 
-function startGame() {
+function showBanner() {
+  clearTimeout(bannerTimer);
+  bannerEl.textContent = `Level ${level}`;
+  bannerEl.hidden = false;
+  // Restart the animation when the banner shows twice in a row.
+  bannerEl.classList.remove('show');
+  void bannerEl.offsetWidth;
+  bannerEl.classList.add('show');
+  bannerTimer = setTimeout(() => {
+    bannerEl.hidden = true;
+  }, BANNER_TIME);
+}
+
+function hideBanner() {
+  clearTimeout(bannerTimer);
+  bannerEl.hidden = true;
+}
+
+// Each level starts with an empty sky, 0 points and full lives.
+function enterLevel(n) {
+  level = n;
+  settings = levelSettings(level);
+  lanterns = [];
+  score = 0;
+  lives = LIVES;
+  spawnTimer = settings.interval; // first lantern right away
+  renderLevel();
+  renderScore();
+  renderLives();
+}
+
+function advanceLevel() {
+  enterLevel(level + 1);
+  unlock(level);
+  showBanner();
+}
+
+function startGame(startLevel) {
   demo = false;
   demoPlan = [];
   overlay.hidden = true;
@@ -452,12 +550,8 @@ function startGame() {
   pauseOverlay.hidden = true;
   // Space must not press a focused button while the game runs.
   document.activeElement?.blur();
-  lanterns = [];
-  score = 0;
-  lives = LIVES;
-  spawnTimer = SPAWN_INTERVAL; // first lantern right away
-  renderScore();
-  renderLives();
+  enterLevel(startLevel);
+  hideBanner();
   running = true;
   paused = false;
   startLoop();
@@ -467,8 +561,12 @@ function gameOver() {
   running = false;
   const best = Math.max(score, readBest());
   writeBest(best);
+  unlock(unlockedAfter(level, score, unlocked));
+  finalLevelEl.textContent = level;
   finalScoreEl.textContent = score;
   bestScoreEl.textContent = best;
+  nextButton.hidden = level + 1 > unlocked;
+  hideBanner();
   gameOverOverlay.hidden = false;
   againButton.focus();
 }
@@ -485,13 +583,16 @@ function onKeyDown(event) {
   if (!event.repeat) togglePause();
 }
 
-startButton.addEventListener('click', startGame);
-againButton.addEventListener('click', startGame);
+startButton.addEventListener('click', () => startGame(unlocked));
+againButton.addEventListener('click', () => startGame(level));
+nextButton.addEventListener('click', () => startGame(level + 1));
 canvas.addEventListener('pointerdown', onPointerDown);
 window.addEventListener('keydown', onKeyDown);
 window.addEventListener('resize', resize);
 
-targetEl.textContent = TARGET;
+unlocked = readUnlocked();
+renderStartLevel();
+renderLevel();
 buildLives();
 renderLives();
 renderScore();

@@ -59,6 +59,49 @@ body {
   transition: opacity 0.6s ease, filter 0.6s ease;
 }
 
+.hud-level {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: 0.55em;
+}
+
+.hud-level-name {
+  white-space: nowrap;
+}
+
+/* 0 to 200 points; the marks sit at 100 and at the end, 200. */
+.hud-progress {
+  position: relative;
+  flex: 1;
+  height: 10px;
+  margin-right: 12px;
+  border-radius: 999px;
+  background: rgba(245, 233, 200, 0.18);
+}
+
+.hud-progress-fill {
+  height: 100%;
+  width: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #ff9a3c, #ffd27a);
+  transition: width 0.3s ease;
+}
+
+.hud-progress-mark {
+  position: absolute;
+  top: -4px;
+  height: 18px;
+  border-left: 2px solid #ffd27a;
+  padding-top: 18px;
+  transform: translateX(-1px);
+  font-size: 0.7rem;
+  line-height: 1;
+  text-indent: -1.1em;
+  opacity: 0.85;
+}
+
 .hud-lives svg.lost {
   opacity: 0.2;
   filter: grayscale(1);
@@ -116,8 +159,44 @@ body {
   font-size: 1.25rem;
 }
 
-.panel .result + button {
+.panel .buttons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
   margin-top: 16px;
+}
+
+.panel .start-level {
+  margin: -12px 0 20px;
+}
+
+.banner {
+  position: fixed;
+  top: 40%;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: clamp(2.5rem, 10vw, 5rem);
+  font-weight: 800;
+  color: #ffd27a;
+  text-shadow: 0 0 24px rgba(255, 180, 70, 0.8);
+  pointer-events: none;
+}
+
+.banner[hidden] {
+  display: none;
+}
+
+.banner.show {
+  animation: banner 1.8s ease forwards;
+}
+
+@keyframes banner {
+  0% { opacity: 0; transform: scale(0.8); }
+  15% { opacity: 1; transform: scale(1); }
+  75% { opacity: 1; }
+  100% { opacity: 0; }
 }
 
 .panel button {
