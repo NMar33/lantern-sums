@@ -1,4 +1,9 @@
-import { TARGET, checkSelection, scoreFor, halloweenOn } from './logic.js';
+import {
+  TARGET,
+  halloweenOn,
+  selectionOutcome,
+  escapeCost,
+} from './logic.js';
 
 const LIVES = 3;
 const STAR_COUNT = 160;
@@ -12,6 +17,10 @@ const SPAWN_TRIES = 20;
 const FLOAT_TIME = 0.8; // seconds a matched lantern takes to float away
 const SHAKE_TIME = 0.4;
 const SHAKE_AMPLITUDE = 3; // px, at most half of LANTERN_GAP
+// Never two ghosts in a row: a 1 in 7 chance after a normal lantern makes
+// about 1 lantern in 8 a ghost.
+const GHOST_CHANCE = 1 / 7;
+const GHOST_FLASH_TIME = 0.6;
 const MAX_STEP = 0.1; // seconds; longer frames (a hidden tab) are clamped
 const BEST_KEY = 'lantern-sums-best';
 const HALLOWEEN_KEY = 'lantern-sums-halloween'; // 'on' or 'off', set by the toggle
@@ -51,6 +60,7 @@ let lastTime = 0;
 let frameId = 0;
 let nextId = 1;
 let halloween = false;
+let lastWasGhost = false;
 
 function lanternIcon() {
   return `<svg viewBox="0 0 22 32" aria-hidden="true">
@@ -122,6 +132,8 @@ function writeHalloweenChoice(on) {
 
 function setHalloween(on) {
   halloween = on;
+  // Ghosts exist only in Halloween mode.
+  if (!on) lanterns = lanterns.filter((l) => !l.ghost);
   document.body.classList.toggle('halloween', on);
   halloweenToggle.setAttribute('aria-checked', String(on));
   buildLives();
@@ -182,15 +194,19 @@ function spawnLantern() {
   for (let i = 0; i < SPAWN_TRIES; i++) {
     const x = margin + Math.random() * (w - 2 * margin);
     if (!overlapsAny(x, y)) {
+      const ghost = halloween && !lastWasGhost && Math.random() < GHOST_CHANCE;
+      lastWasGhost = ghost;
       lanterns.push({
         id: nextId++,
         x,
         y,
         value: 1 + Math.floor(Math.random() * 9),
+        ghost,
         selected: false,
         floating: false,
         floatT: 0,
         shakeT: 0,
+        flashT: 0,
       });
       return;
     }
@@ -198,12 +214,26 @@ function spawnLantern() {
   // No free spot this time: skip this spawn.
 }
 
+function loseLives(count) {
+  if (!running || count === 0) return;
+  lives = Math.max(0, lives - count);
+  renderLives();
+  if (lives === 0) gameOver();
+}
+
 function resolveSelection() {
   const selected = selectedLanterns();
-  const result = checkSelection(selected.map((l) => l.value));
-  if (result === 'match') {
+  const { result, points, livesLost } = selectionOutcome(selected);
+  if (livesLost > 0) {
+    // A ghost sprang the trap: it flashes and the selection clears.
+    for (const l of selected) {
+      l.selected = false;
+      if (l.ghost) l.flashT = GHOST_FLASH_TIME;
+    }
+    loseLives(livesLost);
+  } else if (result === 'match') {
     if (running) {
-      score += scoreFor(selected.length);
+      score += points;
       renderScore();
     }
     for (const l of selected) {
@@ -241,7 +271,7 @@ function findDemoGroup() {
   const top = hudEl.getBoundingClientRect().bottom + LANTERN_RADIUS;
   const bottom = window.innerHeight - LANTERN_RADIUS;
   const candidates = activeLanterns()
-    .filter((l) => l.y >= top && l.y <= bottom)
+    .filter((l) => !l.ghost && l.y >= top && l.y <= bottom)
     .sort((a, b) => a.y - b.y)
     .slice(0, DEMO_CANDIDATES);
 
@@ -298,28 +328,31 @@ function update(dt) {
     l.y -= RISE_SPEED * dt;
     if (l.floating) l.floatT += dt;
     if (l.shakeT > 0) l.shakeT = Math.max(0, l.shakeT - dt);
+    if (l.flashT > 0) l.flashT = Math.max(0, l.flashT - dt);
   }
 
   if (demo) runDemo(dt);
 
   // A lantern whose top edge reaches the top of the sky costs a life and is
-  // dropped (from the selection too). Matched lanterns floating away cost
-  // nothing; they are dropped once faded. In attract mode no life is lost.
+  // dropped (from the selection too). A ghost there fades out for free, like
+  // matched lanterns floating away; both are dropped once faded. In attract
+  // mode no life is lost.
   let escaped = 0;
   lanterns = lanterns.filter((l) => {
     if (l.floating) return l.floatT < FLOAT_TIME;
     if (l.y - LANTERN_RADIUS <= 0) {
-      escaped++;
+      escaped += escapeCost(l);
+      if (l.ghost) {
+        l.selected = false;
+        l.floating = true;
+        return true;
+      }
       return false;
     }
     return true;
   });
 
-  if (escaped > 0 && running) {
-    lives = Math.max(0, lives - escaped);
-    renderLives();
-    if (lives === 0) gameOver();
-  }
+  loseLives(escaped);
 }
 
 function drawSky() {
@@ -511,6 +544,56 @@ function drawPumpkin(value, selected) {
   drawNumber(value);
 }
 
+// Ghost: a pale sheet with a wavy hem, in the same units as the lantern.
+function ghostPath() {
+  ctx.beginPath();
+  ctx.moveTo(-20, 22);
+  ctx.lineTo(-20, -6);
+  ctx.arc(0, -6, 20, Math.PI, 0);
+  ctx.lineTo(20, 22);
+  for (let i = 0; i < 4; i++) {
+    const x = 20 - i * 10;
+    ctx.quadraticCurveTo(x - 2.5, 28, x - 5, 22);
+    ctx.quadraticCurveTo(x - 7.5, 16, x - 10, 22);
+  }
+  ctx.closePath();
+}
+
+function drawGhost(value, selected, flashT) {
+  const flash = flashT > 0 ? Math.abs(Math.sin((flashT / GHOST_FLASH_TIME) * Math.PI * 3)) : 0;
+  ctx.save();
+  ctx.globalAlpha *= 0.6 + 0.4 * flash;
+  if (selected || flash > 0) {
+    ctx.shadowColor = flash > 0 ? 'rgba(190, 255, 220, 1)' : 'rgba(255, 225, 130, 0.95)';
+    ctx.shadowBlur = 22 + 20 * flash;
+  }
+  const sheet = ctx.createLinearGradient(0, -26, 0, 26);
+  sheet.addColorStop(0, '#f4f7ff');
+  sheet.addColorStop(1, flash > 0 ? '#d9fff0' : '#b9c3e6');
+  ctx.fillStyle = sheet;
+  ghostPath();
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  // Hollow eyes, above the number
+  ctx.fillStyle = '#2a2f4a';
+  for (const side of [-1, 1]) {
+    ctx.beginPath();
+    ctx.ellipse(side * 9, -14, 3, 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  if (selected) {
+    ctx.strokeStyle = '#ffe9a8';
+    ctx.lineWidth = 3;
+    ghostPath();
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  drawNumber(value);
+}
+
 // A light halo keeps the number readable over the drawing.
 function drawNumber(value) {
   ctx.font = '800 27px system-ui, sans-serif';
@@ -546,7 +629,8 @@ function drawLantern(l) {
   ctx.globalAlpha = alpha;
   ctx.translate(x, y);
   ctx.scale(scale * LANTERN_SIZE, scale * LANTERN_SIZE);
-  if (halloween) drawPumpkin(l.value, l.selected);
+  if (l.ghost) drawGhost(l.value, l.selected, l.flashT);
+  else if (halloween) drawPumpkin(l.value, l.selected);
   else drawPaperLantern(l.value, l.selected);
   ctx.restore();
 }
@@ -591,6 +675,7 @@ function startGame() {
   // Space must not press a focused button while the game runs.
   document.activeElement?.blur();
   lanterns = [];
+  lastWasGhost = false;
   score = 0;
   lives = LIVES;
   spawnTimer = SPAWN_INTERVAL; // first lantern right away
