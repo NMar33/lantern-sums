@@ -1,6 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { sumOf, checkSelection, scoreFor } from '../logic.js';
+import { TARGET, sumOf, checkSelection, scoreFor } from '../logic.js';
+
+test('the target is 10', () => {
+  assert.equal(TARGET, 10);
+});
 
 test('sumOf adds the numbers', () => {
   assert.equal(sumOf([]), 0);
@@ -33,6 +37,11 @@ test('checkSelection returns "under" when the sum is below 10', () => {
   assert.equal(checkSelection([2, 3]), 'under');
   assert.equal(checkSelection([9]), 'under');
   assert.equal(checkSelection([]), 'under');
+});
+
+test('scoreFor pays nothing for zero or one lantern', () => {
+  assert.equal(scoreFor(0), 0);
+  assert.equal(scoreFor(1), 0);
 });
 
 test('scoreFor pays 10 for two lanterns', () => {
