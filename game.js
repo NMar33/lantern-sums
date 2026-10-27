@@ -35,6 +35,7 @@ const gameOverOverlay = document.getElementById('gameover-overlay');
 const finalScoreEl = document.getElementById('final-score');
 const bestScoreEl = document.getElementById('best-score');
 const againButton = document.getElementById('again-button');
+const halloweenToggle = document.getElementById('halloween-toggle');
 
 let stars = [];
 let lanterns = [];
@@ -111,10 +112,27 @@ function readHalloweenChoice() {
   }
 }
 
+function writeHalloweenChoice(on) {
+  try {
+    localStorage.setItem(HALLOWEEN_KEY, on ? 'on' : 'off');
+  } catch {
+    // The choice is then kept for this page only.
+  }
+}
+
 function setHalloween(on) {
   halloween = on;
   document.body.classList.toggle('halloween', on);
+  halloweenToggle.setAttribute('aria-checked', String(on));
   buildLives();
+}
+
+// The toggle is the player's own choice, so it is remembered; a ?theme=
+// link only sets the mode for the visit and is not saved.
+function onHalloweenToggle() {
+  setHalloween(!halloween);
+  writeHalloweenChoice(halloween);
+  draw();
 }
 
 function renderScore() {
@@ -606,6 +624,7 @@ function onKeyDown(event) {
 }
 
 startButton.addEventListener('click', startGame);
+halloweenToggle.addEventListener('click', onHalloweenToggle);
 againButton.addEventListener('click', startGame);
 canvas.addEventListener('pointerdown', onPointerDown);
 window.addEventListener('keydown', onKeyDown);
