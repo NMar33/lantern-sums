@@ -7,6 +7,8 @@ import {
   isHalloweenSeason,
   themeFromLink,
   halloweenOn,
+  selectionOutcome,
+  escapeCost,
 } from '../logic.js';
 
 test('sumOf adds the numbers', () => {
@@ -110,4 +112,54 @@ test('the link wins over the remembered toggle', () => {
     halloweenOn({ date: oct(31), search: '?theme=classic', remembered: true }),
     false,
   );
+});
+
+const lantern = (value) => ({ value, ghost: false });
+const ghost = (value) => ({ value, ghost: true });
+
+test('a ghost in a sum of 10 costs a life and scores 0', () => {
+  assert.deepEqual(selectionOutcome([lantern(4), ghost(6)]), {
+    result: 'match',
+    points: 0,
+    livesLost: 1,
+  });
+});
+
+test('a ghost in a sum over 10 costs a life', () => {
+  assert.deepEqual(selectionOutcome([ghost(7), lantern(5)]), {
+    result: 'over',
+    points: 0,
+    livesLost: 1,
+  });
+});
+
+test('a ghost in a sum under 10 costs nothing yet', () => {
+  assert.deepEqual(selectionOutcome([ghost(3), lantern(2)]), {
+    result: 'under',
+    points: 0,
+    livesLost: 0,
+  });
+});
+
+test('a sum of 10 without a ghost scores as before', () => {
+  assert.equal(selectionOutcome([lantern(3), lantern(7)]).points, 10);
+  assert.equal(selectionOutcome([lantern(2), lantern(3), lantern(5)]).points, 30);
+  assert.equal(
+    selectionOutcome([lantern(1), lantern(2), lantern(3), lantern(4)]).points,
+    60,
+  );
+  assert.equal(selectionOutcome([lantern(3), lantern(7)]).livesLost, 0);
+});
+
+test('a sum over 10 without a ghost costs no life and scores nothing', () => {
+  assert.deepEqual(selectionOutcome([lantern(6), lantern(5)]), {
+    result: 'over',
+    points: 0,
+    livesLost: 0,
+  });
+});
+
+test('a ghost flying away costs no life; a normal lantern costs one', () => {
+  assert.equal(escapeCost(ghost(5)), 0);
+  assert.equal(escapeCost(lantern(5)), 1);
 });

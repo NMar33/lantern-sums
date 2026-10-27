@@ -38,3 +38,19 @@ export function halloweenOn({ date, search = '', remembered = null }) {
   if (remembered !== null) return remembered;
   return isHalloweenSeason(date);
 }
+
+// What a selection of lanterns ({ value, ghost }) does: 'match' and 'over'
+// resolve it, 'under' waits for more. A ghost in a resolved selection costs
+// one life and the selection scores nothing.
+export function selectionOutcome(lanterns) {
+  const result = checkSelection(lanterns.map((l) => l.value));
+  if (result === 'under') return { result, points: 0, livesLost: 0 };
+  if (lanterns.some((l) => l.ghost)) return { result, points: 0, livesLost: 1 };
+  const points = result === 'match' ? scoreFor(lanterns.length) : 0;
+  return { result, points, livesLost: 0 };
+}
+
+// Lives a lantern costs when it reaches the top: a ghost flies away freely.
+export function escapeCost(lantern) {
+  return lantern.ghost ? 0 : 1;
+}
