@@ -10,7 +10,7 @@ export const ADVANCE_POINTS = 200; // moves on to the next level at once
 const LEVELS = [
   { speed: 40, interval: 1.2, target: 10 },
   { speed: 50, interval: 1.2, target: 10 },
-  { speed: 50, interval: 1.0, target: 10 },
+  { speed: 60, interval: 1.0, target: 10 },
   { speed: 90, interval: 1.0, target: 12 },
   { speed: 100, interval: 1.0, target: 15 },
 ];
